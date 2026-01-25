@@ -9,7 +9,10 @@ import "core:math"
 import "core:mem"
 import "base:runtime"
 import "core:math/rand"
+import vmem "core:mem/virtual"
 
+// The number of threads in the pool.
+thread_count : uint
 
 do_raw_thread :: proc() {
 	
@@ -38,133 +41,133 @@ do_raw_thread :: proc() {
 	fmt.printfln("t is %v", td.asdf)
 }
 
+MULTITHREAD :: #config(MULTITHREAD, false)
+
 main :: proc() {
-	// do_raw_thread()
-	st_answer_1, st_answer_2 := do_puzzle_singlethread()
-	do_puzzle_mt()
+	
+	thread_count = uint(os.processor_core_count())
+	fmt.printfln("os processor core count: %v", thread_count)
+	
+	when MULTITHREAD {
+		do_happy_mt()
+	} else {
+		do_happy_st()
+	}
 }
 
-// The number of threads in the pool.
-THREAD_COUNT :: 8
 
 // The number of tasks we want to perform.
 // These tasks will be distributed among threads of the pool.
-TASK_COUNT :: 64
 
-do_puzzle_mt :: proc() {
-	pool: thread.Pool
+SEARCH_LIMIT :: 1_000_123
+// SEARCH_LIMIT :: 9
+
+get_start_end :: proc(thread_id: uint) -> (uint, uint) {
 	
-	pool_allocator: mem.Allocator
-	pool_allocator = context.allocator
-	thread.pool_init(&pool, pool_allocator, THREAD_COUNT)
+	ensure(SEARCH_LIMIT > thread_count)
+	
+	res_start, res_end: uint
+	
+	chunk_size : uint = SEARCH_LIMIT / thread_count
+    remainder : uint = SEARCH_LIMIT % thread_count
+    
+    res_start = thread_id * chunk_size + 1
+    res_end = (thread_id + 1) * chunk_size
+    
+    if thread_id == 0 {
+   		res_start = 0
+    }
+    
+    if thread_id == thread_count - 1 {
+    	res_end = SEARCH_LIMIT
+    }
+	
+	// fmt.printfln("thread id: %v, taking numbers from %v to %v. len: %v", thread_id, res_start, res_end, res_end - res_start + 1)
+	return res_start, res_end
+}
+
+do_happy_mt :: proc() {
+	
+	pool: thread.Pool
+	thread.pool_init(&pool, context.allocator, int(thread_count))
 	thread.pool_start(&pool)
 	defer thread.pool_destroy(&pool)
 	
-	task_data_array: [TASK_COUNT]TaskData
+	task_data_array:= make_slice([]TaskData, thread_count)
+	defer delete(task_data_array)
 	
-	for task_index in 0..<TASK_COUNT {
-		
-		task_allocator: mem.Allocator
-		
-		task_allocator = runtime.nil_allocator()
+	for task_index in 0..<thread_count {
 		task_data := &task_data_array[task_index]
-		task_data^ = {
-			a = int(rand.int31_max(100)),
-		}
-		
-		thread.pool_add_task(&pool, task_allocator, task_handler, task_data, task_index)
+		task_data^ = {}
+		thread.pool_add_task(&pool, runtime.nil_allocator(), task_handler, task_data, int(task_index))
 	}
 	thread.pool_finish(&pool)
 	
-	result_added : int
+	// Summing the count
 	
-	for i in 0..<TASK_COUNT {
+	result_added : uint
+	
+	for i in 0..<thread_count {
 		task, _ := thread.pool_pop_done(&pool)
 		data := cast(^TaskData)task.data
-		result_added += data.a_out
+		result_added += data.happy_count
 	}
 	
-	fmt.printfln("res is %v", result_added)
+	fmt.printfln("number of happy numbers between 0 and %v is %v", SEARCH_LIMIT, result_added)
 }
 
 TaskData :: struct {
-	a: int,
-	a_out: int
+	happy_count: uint
 }
 
 task_handler :: proc(task: thread.Task) {
 	data := cast(^TaskData)task.data
+	search_start, search_end := get_start_end(uint(task.user_index))
+	res: uint
 	
-	// processes taskdata and stores the output in the same struct
-	data.a_out = data.a * 2
-}
-
-// returns the answers
-do_puzzle_singlethread :: proc() -> (int, int){
-	
-	the_input, ok := os.read_entire_file("aoc1.input")
-	assert(ok)
-	
-	lines := strings.split_lines(string(the_input))
-	
-	return part_one(lines), part_two(lines)
-}
-
-part_one :: proc (lines : []string) -> int {
-	
-	// dial starts at 50
-	cur_number : int = 50
-	zero_hits : int
-	
-	for line in lines {
-		// gettin number
-		if len(line) == 0 do continue
-		dial_turn, ok := strconv.parse_int(line[1:], 10)
-		assert(ok)
-		
-		if line[0] == 'L' do dial_turn *= -1
-		cur_number = turn_dial(cur_number, dial_turn)
-		
-		if cur_number == 0 {
-			zero_hits += 1
+	for i in search_start..=search_end {
+		if is_number_happy(i) {
+			res += 1
 		}
 	}
 	
-	// right answer: 1055
-	return zero_hits
+	data.happy_count = res
 }
 
-part_two :: proc(lines : []string) -> int {
+is_number_happy :: proc(num: uint) -> bool {
+	n := num
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	
-	// dial starts at 50
-	cur_number : int = 50
-	zero_hits : int
+	seen := make_map(map[uint]struct{}, context.temp_allocator)
 	
-	for line in lines {
-		// gettin number
-		if len(line) == 0 do continue
-		dial_turn, ok := strconv.parse_int(line[1:], 10)
-		assert(ok)
-		
-		prev_number := cur_number
-		if line[0] == 'L' do dial_turn *= -1
-		
-		// turning dial
-		cur_number = turn_dial(cur_number, dial_turn)
-		
-		// counting zero hits
-		zero_hits += math.abs(dial_turn) / 100
-		after_number := prev_number + (dial_turn % 100)
-		
-		if prev_number != 0 && (after_number <= 0 || after_number > 99) {
-			zero_hits += 1
+	for n != 1 && !(n in seen) {
+		seen[n] = {}
+		n = sum_squares(n)
+	}
+	
+	return n == 1
+}
+
+sum_squares :: proc(n : uint) -> uint {
+	n := n
+	sum : uint = 0
+	for n > 0 {
+		digit := n % 10
+		sum += digit * digit
+		n /= 10
+	}
+	return sum
+}
+
+do_happy_st :: proc() {
+	
+	res : uint
+	
+	for i in 0..=SEARCH_LIMIT {
+		if is_number_happy(uint(i)) {
+			res += 1
 		}
 	}
-
-	// right answer: 6386
-	return zero_hits
-}
-
-turn_dial :: proc(prev_numb, turn_by: int) -> int {
-	return (prev_numb + turn_by) %% 100
+	
+	fmt.printfln("res is %v", res)
 }
