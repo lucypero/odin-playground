@@ -45,7 +45,8 @@ MULTITHREAD :: #config(MULTITHREAD, false)
 
 main :: proc() {
 	
-	thread_count = uint(os.processor_core_count())
+	thread_count = uint(os.get_processor_core_count())
+	thread_count = math.clamp(thread_count, 1, thread_count - 1)
 	fmt.printfln("os processor core count: %v", thread_count)
 	
 	when MULTITHREAD {
@@ -61,10 +62,15 @@ main :: proc() {
 
 SEARCH_LIMIT :: 1_000_123
 // SEARCH_LIMIT :: 9
+// SEARCH_LIMIT :: 15
 
 get_start_end :: proc(thread_id: uint) -> (uint, uint) {
 	
-	ensure(SEARCH_LIMIT > thread_count)
+	// handling case when the tasks are less than the thread thread_count
+	if SEARCH_LIMIT <= thread_count {
+		// so something else here
+		ensure(false)
+	}
 	
 	res_start, res_end: uint
 	
@@ -125,6 +131,8 @@ task_handler :: proc(task: thread.Task) {
 	search_start, search_end := get_start_end(uint(task.user_index))
 	res: uint
 	
+	// hubby way
+	// for i:= uint(task.user_index); i <= SEARCH_LIMIT; i += thread_count {
 	for i in search_start..=search_end {
 		if is_number_happy(i) {
 			res += 1
