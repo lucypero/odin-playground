@@ -1,0 +1,5 @@
+*
+!.gitignore
+!*.odin
+!*.bat
+!/src/
