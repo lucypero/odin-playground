@@ -1,17 +1,14 @@
-
 /*
 
-This program was to test the thread sanitizer.
+This program was written to test the thread sanitizer.
 
-run the thread sanitizer like this, with MT_SAFE=true/false
+Run the thread sanitizer like this, with MT_SAFE=true/false
 
 odin run src/atomic_sync.odin -file -sanitize:thread -define:MT_SAFE=false -debug
-
 
 Thread sanitizer proves that adding our atomics operations makes the program thread safe.
 
 This is what we get from the thread sanitizer with MT_SAFE=false:
-
 
 ==================
 WARNING: ThreadSanitizer: data race (pid=15564)
@@ -38,14 +35,9 @@ WARNING: ThreadSanitizer: data race (pid=15564)
 
 SUMMARY: ThreadSanitizer: data race /home/lucy/dev/odin-playground/src/atomic_sync.odin:79:17 in atomic_sync::store_status
 
-
 */
 
-
-
-
 package atomic_sync
-
 
 import "core:fmt"
 import "core:sync"
@@ -64,7 +56,7 @@ DataToProcess :: struct {
 }
 
 g_data: DataToProcess
-g_stop :int = 10
+g_stop: int = 10
 
 MT_SAFE :: #config(MT_SAFE, false)
 
@@ -98,8 +90,6 @@ main :: proc() {
 }
 
 thread_start :: proc() {
-
-	
 	for {
 		if load_status() == .Loading {
 			if g_data.to_process == -1 do break
