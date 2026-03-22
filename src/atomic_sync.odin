@@ -19,6 +19,8 @@ DataToProcess :: struct {
 g_data: DataToProcess
 g_stop :int = 10
 
+MT_SAFE :: #config(MT_SAFE, false)
+
 main :: proc() {
 	
 	g_data.to_process = 0
@@ -26,12 +28,11 @@ main :: proc() {
 	
 	th := thread.create_and_start(thread_start)
 	
-	
 	for {
-		if g_data.status == .Ready {
+		if load_status() == .Ready {
 			fmt.println("data is ready by loading thread. sending it back")
 			g_data.to_process = 0
-			g_data.status = .Loading
+			store_status(.Loading)
 			// Set it back to loading
 			g_stop -= 1
 		}
@@ -42,7 +43,7 @@ main :: proc() {
 		}
 	}
 	
-	thread.destroy(th)
+	thread.terminate(th, 1)
 	
 	fmt.printfln("task done")
 }
@@ -50,16 +51,27 @@ main :: proc() {
 thread_start :: proc() {
 	
 	for {
-		
-		if g_data.status == .Loading {
+		if load_status() == .Loading {
 			g_data.to_process = 5
-			g_data.status = .Ready
+			store_status(.Ready)
 		}
 		
 		time.sleep(10 * time.Millisecond)
-		
-		if g_stop <= 0 {
-			break
-		}
+	}
+}
+
+load_status :: #force_inline proc() -> Status {
+	when MT_SAFE {
+		return sync.atomic_load_explicit(&g_data.status, .Acquire)
+	} else {
+		return g_data.status
+	}
+}
+
+store_status :: #force_inline proc(status: Status) {
+	when MT_SAFE {
+		sync.atomic_store_explicit(&g_data.status, status, .Release)
+	} else {
+		g_data.status = status
 	}
 }
